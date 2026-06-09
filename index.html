@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>14 rue du Cherche-Midi — Navigateur 3D</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>🏛</text></svg>" />
+<style>
+  :root {
+    --gold: #d4af37;
+    --ink: #181510;
+    --paper: #f4efe3;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; background: #0b0a08; }
+  body { font-family: Georgia, "Times New Roman", serif; color: var(--paper); }
+  #viewport { position: fixed; inset: 0; }
+  #viewport canvas { display: block; }
+
+  header {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 5;
+    display: flex; align-items: baseline; gap: 14px;
+    padding: 14px 20px;
+    background: linear-gradient(rgba(10,9,7,0.85), rgba(10,9,7,0));
+    pointer-events: none;
+  }
+  header h1 { font-size: 21px; letter-spacing: 2px; font-variant: small-caps; }
+  header .sub { font-size: 12.5px; font-style: italic; opacity: 0.75; }
+
+  #sidebar {
+    position: fixed; left: 14px; top: 64px; bottom: 14px; width: 235px; z-index: 5;
+    background: rgba(20,18,14,0.86); border: 1px solid rgba(212,175,55,0.35);
+    border-radius: 10px; padding: 12px; overflow-y: auto;
+    backdrop-filter: blur(6px);
+  }
+  #sidebar h3 { font-variant: small-caps; letter-spacing: 1.5px; font-size: 13px; color: var(--gold); margin-bottom: 8px; }
+  #roomList { list-style: none; }
+  #roomList li {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 13px;
+    border-bottom: 1px solid rgba(244,239,227,0.07);
+  }
+  #roomList li span { font-size: 11px; opacity: 0.6; font-style: italic; }
+  #roomList li:hover { background: rgba(212,175,55,0.15); }
+  #roomList li.active { background: rgba(212,175,55,0.28); }
+
+  #toolbar {
+    position: fixed; top: 14px; right: 14px; z-index: 6;
+    display: flex; gap: 8px; align-items: center;
+  }
+  #toolbar button, #modes button {
+    font-family: inherit; font-size: 12.5px; letter-spacing: 0.5px;
+    color: var(--paper); background: rgba(20,18,14,0.86);
+    border: 1px solid rgba(212,175,55,0.4); border-radius: 7px;
+    padding: 7px 12px; cursor: pointer;
+  }
+  #toolbar button:hover, #modes button:hover { background: rgba(212,175,55,0.22); }
+  #toolbar button.active, #modes button.active { background: var(--gold); color: var(--ink); font-weight: bold; }
+  #modes { display: flex; gap: 0; border-radius: 7px; overflow: hidden; }
+  #modes button { border-radius: 0; border-right-width: 0; }
+  #modes button:first-child { border-radius: 7px 0 0 7px; }
+  #modes button:last-child { border-radius: 0 7px 7px 0; border-right-width: 1px; }
+
+  #minimap {
+    position: fixed; right: 14px; bottom: 14px; z-index: 5;
+    width: 300px; height: 190px; cursor: crosshair;
+    border: 1px solid rgba(212,175,55,0.35); border-radius: 10px;
+  }
+
+  #roomCard {
+    position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
+    z-index: 5; min-width: 320px; max-width: 460px; text-align: center;
+    background: rgba(20,18,14,0.88); border: 1px solid rgba(212,175,55,0.4);
+    border-radius: 10px; padding: 12px 22px; transition: opacity .5s;
+    backdrop-filter: blur(6px);
+  }
+  #roomCard h2 { font-variant: small-caps; letter-spacing: 2px; font-size: 19px; color: var(--gold); }
+  #roomCard .meta { font-size: 12px; font-style: italic; opacity: 0.8; margin: 3px 0 6px; }
+  #roomCard p { font-size: 13px; line-height: 1.45; opacity: 0.9; }
+  #roomCard.compact p { display: none; }
+  #roomCard.hidden { display: none; }
+
+  #hint {
+    position: fixed; left: 50%; top: 58px; transform: translateX(-50%); z-index: 5;
+    font-size: 12px; font-style: italic; opacity: 0.75; pointer-events: none;
+    background: rgba(20,18,14,0.6); padding: 4px 14px; border-radius: 14px;
+  }
+
+  #help {
+    position: fixed; inset: 0; z-index: 20; background: rgba(8,7,5,0.78);
+    display: flex; align-items: center; justify-content: center;
+  }
+  #help.hidden { display: none; }
+  #help .panel {
+    width: min(620px, 92vw); background: #1c1914; border: 1px solid var(--gold);
+    border-radius: 12px; padding: 28px 34px; line-height: 1.6; font-size: 14px;
+  }
+  #help h2 { font-variant: small-caps; letter-spacing: 2px; color: var(--gold); margin-bottom: 10px; }
+  #help kbd {
+    font-family: inherit; background: #2e2a22; border: 1px solid #555;
+    border-radius: 4px; padding: 1px 7px; font-size: 12px;
+  }
+  #help .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 26px; margin: 12px 0; }
+  #help .foot { font-size: 12px; font-style: italic; opacity: 0.7; margin-top: 14px; }
+  #help .close { float: right; cursor: pointer; color: var(--gold); font-size: 18px; }
+
+  @media (max-width: 900px) {
+    #sidebar { display: none; }
+    #minimap { width: 210px; height: 135px; }
+  }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three.module.js",
+    "three/addons/": "./vendor/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<div id="viewport"></div>
+
+<header>
+  <h1>14 rue du Cherche-Midi</h1>
+  <div class="sub">Paris VIe — hôtel particulier du XVIIIe siècle · parquet de Versailles · plan projet 05/2026</div>
+</header>
+
+<div id="toolbar">
+  <div id="modes">
+    <button data-mode="walk" class="active">Visite</button>
+    <button data-mode="orbit">Orbite</button>
+    <button data-mode="plan">Plan</button>
+  </div>
+  <button id="tourBtn">Visite guidée</button>
+  <button id="dayNight">🌙 Nuit</button>
+  <button id="helpBtn">?</button>
+</div>
+
+<div id="hint"></div>
+
+<aside id="sidebar">
+  <h3>Pièces — 213 m² env.</h3>
+  <ul id="roomList"></ul>
+</aside>
+
+<div id="roomCard" class="hidden"></div>
+<canvas id="minimap" width="600" height="380"></canvas>
+
+<div id="help">
+  <div class="panel">
+    <span class="close" onclick="this.closest('#help').classList.add('hidden')">✕</span>
+    <h2>Navigateur 3D — mode d'emploi</h2>
+    <p>Maquette interactive reconstruite d'après le <i>plan projet</i> de réhabilitation
+    (éch. 1/50) de cet appartement de réception dans un hôtel particulier du
+    XVIIIe siècle, rue du Cherche-Midi. Onze portes-fenêtres sur rue, enfilade de
+    réception, parquet de Versailles, hauteurs sous plafond de 3,26 à 3,32 m.</p>
+    <div class="cols">
+      <div><kbd>Clic</kbd> capturer la souris (mode Visite)</div>
+      <div><kbd>Z Q S D</kbd> / <kbd>W A S D</kbd> / flèches : marcher</div>
+      <div><kbd>Maj</kbd> courir</div>
+      <div><kbd>V</kbd> changer de vue (Visite / Orbite / Plan)</div>
+      <div><kbd>T</kbd> visite guidée</div>
+      <div><kbd>N</kbd> jour / nuit</div>
+      <div><kbd>H</kbd> cette aide</div>
+      <div><kbd>Échap</kbd> libérer la souris</div>
+    </div>
+    <p>Cliquez une pièce dans la liste de gauche ou sur la mini-carte pour vous y
+    téléporter. En vue <i>Plan</i>, cliquez directement une pièce de la maquette.</p>
+    <p class="foot">Surfaces et hauteurs sous plafond issues du plan DCE du 05/05/2026 —
+    maîtrise d'œuvre Camille Thouvenet. Maquette indicative reconstituée depuis le plan 2D.</p>
+  </div>
+</div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

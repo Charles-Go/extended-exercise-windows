@@ -15,7 +15,7 @@
   html, body { height: 100%; overflow: hidden; background: #0b0a08; }
   body { font-family: Georgia, "Times New Roman", serif; color: var(--paper); }
   #viewport { position: fixed; inset: 0; }
-  #viewport canvas { display: block; }
+  #viewport canvas { display: block; touch-action: none; }
 
   header {
     position: fixed; top: 0; left: 0; right: 0; z-index: 5;
@@ -104,9 +104,35 @@
   #help .foot { font-size: 12px; font-style: italic; opacity: 0.7; margin-top: 14px; }
   #help .close { float: right; cursor: pointer; color: var(--gold); font-size: 18px; }
 
-  @media (max-width: 900px) {
+  #joystick {
+    position: fixed; left: 22px; bottom: 22px; z-index: 6;
+    width: 130px; height: 130px; border-radius: 50%; display: none;
+    background: radial-gradient(circle, rgba(244,239,227,0.10), rgba(244,239,227,0.04));
+    border: 1.5px solid rgba(212,175,55,0.45);
+    touch-action: none;
+  }
+  #joyThumb {
+    position: absolute; left: 50%; top: 50%; width: 54px; height: 54px;
+    margin: -27px 0 0 -27px; border-radius: 50%; pointer-events: none;
+    background: rgba(212,175,55,0.45); border: 1px solid rgba(212,175,55,0.8);
+  }
+  #roomsBtn { display: none; }
+
+  @media (max-width: 900px), (pointer: coarse) {
+    header h1 { font-size: 16px; }
+    header .sub { display: none; }
     #sidebar { display: none; }
-    #minimap { width: 210px; height: 135px; }
+    #sidebar.open {
+      display: block; left: 10px; right: 10px; width: auto;
+      top: 60px; bottom: auto; max-height: 60vh; z-index: 10;
+    }
+    #roomsBtn { display: inline-block; }
+    #toolbar { top: auto; bottom: 14px; right: 10px; flex-wrap: wrap; justify-content: flex-end; max-width: 55vw; }
+    #minimap { width: 168px; height: 108px; right: 10px; bottom: 64px; }
+    #roomCard { min-width: 0; max-width: 86vw; bottom: auto; top: 52px; padding: 8px 14px; }
+    #roomCard h2 { font-size: 15px; }
+    #roomCard p { display: none; }
+    #hint { display: none; }
   }
 </style>
 <script type="importmap">
@@ -127,6 +153,7 @@
 </header>
 
 <div id="toolbar">
+  <button id="roomsBtn">☰ Pièces</button>
   <div id="modes">
     <button data-mode="walk" class="active">Visite</button>
     <button data-mode="orbit">Orbite</button>
@@ -146,6 +173,7 @@
 
 <div id="roomCard" class="hidden"></div>
 <canvas id="minimap" width="600" height="380"></canvas>
+<div id="joystick"><div id="joyThumb"></div></div>
 
 <div id="help">
   <div class="panel">
@@ -167,6 +195,9 @@
     </div>
     <p>Cliquez une pièce dans la liste de gauche ou sur la mini-carte pour vous y
     téléporter. En vue <i>Plan</i>, cliquez directement une pièce de la maquette.</p>
+    <p><b>Sur mobile / tablette :</b> joystick en bas à gauche pour marcher, glissez
+    le doigt sur la vue pour regarder ; pincez pour zoomer en mode <i>Orbite</i> ;
+    bouton <i>☰ Pièces</i> pour la liste des pièces.</p>
     <p class="foot">Surfaces et hauteurs sous plafond issues du plan DCE du 05/05/2026 —
     maîtrise d'œuvre Camille Thouvenet. Maquette indicative reconstituée depuis le plan 2D.</p>
   </div>

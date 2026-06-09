@@ -10,8 +10,9 @@ import { buildApartment } from "./builder.js";
 import { buildFurniture, buildLighting } from "./furniture.js";
 
 // --- scène -------------------------------------------------------------------
+const IS_TOUCH = matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
 const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(devicePixelRatio, IS_TOUCH ? 1.5 : 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -22,10 +23,18 @@ document.getElementById("viewport").appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(68, innerWidth / innerHeight, 0.05, 200);
 
+// Le plan (x = est, y = vers la cour) est bâti tel quel puis réfléchi en z
+// (z monde = -y plan) : three.js étant direct (y vers le haut), c'est ce qui
+// restitue la chiralité exacte du plan — sans réflexion la maquette est en
+// miroir (ouest et est inversés quand on regarde la rue).
+const root = new THREE.Group();
+root.scale.z = -1;
+scene.add(root);
+
 const M = makeMaterials();
-const { colliders, ceilGroup } = buildApartment(scene, M);
-buildFurniture(scene, M, colliders);
-const { lamps } = buildLighting(scene, M);
+const { colliders, ceilGroup } = buildApartment(root, M);
+buildFurniture(root, M, colliders);
+const { lamps } = buildLighting(root, M);
 
 // environnement IBL discret pour les métaux, miroirs et vitrages
 const pmrem = new THREE.PMREMGenerator(renderer);
@@ -38,21 +47,21 @@ scene.add(hemi);
 const amb = new THREE.AmbientLight(0xfff4e2, 0.55);
 scene.add(amb);
 const sun = new THREE.DirectionalLight(0xfff2dd, 2.6);
-sun.position.set(6, 14, -12); // sud = rue (z négatif)
+sun.position.set(6, 14, 12); // côté rue (z monde positif)
 sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.mapSize.set(IS_TOUCH ? 1024 : 2048, IS_TOUCH ? 1024 : 2048);
 sun.shadow.camera.left = -16; sun.shadow.camera.right = 16;
 sun.shadow.camera.top = 16; sun.shadow.camera.bottom = -16;
 sun.shadow.bias = -0.0004;
 const sunTarget = new THREE.Object3D();
-sunTarget.position.set(9.4, 0, 5.2);
+sunTarget.position.set(9.4, 0, -5.2);
 scene.add(sunTarget); sun.target = sunTarget;
 scene.add(sun);
 
 const lampLights = [];
 for (const l of lamps) {
   const pl = new THREE.PointLight(0xffd9a0, 0, l.dist, 1.8);
-  pl.position.set(l.x, l.y, l.z);
+  pl.position.set(l.x, l.y, -l.z);
   pl.userData.base = l.intensity;
   scene.add(pl);
   lampLights.push(pl);
@@ -77,13 +86,23 @@ function applyDayNight() {
 applyDayNight();
 
 // --- modes de navigation ---------------------------------------------------------
+// player.{x,z} et yaw sont en coordonnées PLAN (z = y plan, yaw 0 = vers la rue) ;
+// la caméra fait la conversion : position z monde = -z plan, rotation.y = π - yaw.
 const EYE = 1.62, RADIUS = 0.26;
 let mode = "walk"; // walk | orbit | plan
 const player = { x: 2.3, z: 8.6, yaw: 0, pitch: 0 }; // départ : entrée, regard vers l'enfilade
 const keys = {};
+const touchMove = { f: 0, s: 0 }; // joystick analogique (mobile)
+
+function placeCamera() {
+  camera.position.set(player.x, EYE, -player.z);
+  camera.rotation.order = "YXZ";
+  camera.rotation.y = Math.PI - player.yaw;
+  camera.rotation.x = player.pitch;
+}
 
 const orbit = new OrbitControls(camera, renderer.domElement);
-orbit.target.set(APT.width / 2, 0, APT.depth / 2);
+orbit.target.set(APT.width / 2, 0, -APT.depth / 2);
 orbit.maxPolarAngle = Math.PI / 2.05;
 orbit.enabled = false;
 
@@ -93,8 +112,8 @@ function setMode(m) {
   orbit.enabled = (m === "orbit");
   ceilGroup.visible = (m === "walk");
   if (m === "orbit") {
-    camera.position.set(APT.width / 2 - 9, 13, APT.depth / 2 + 11);
-    orbit.target.set(APT.width / 2, 0, APT.depth / 2);
+    camera.position.set(APT.width / 2 - 9, 13, 12 - APT.depth / 2);
+    orbit.target.set(APT.width / 2, 0, -APT.depth / 2);
     camera.fov = 50;
   } else if (m === "plan") {
     camera.fov = 38;
@@ -104,21 +123,75 @@ function setMode(m) {
   }
   camera.updateProjectionMatrix();
   document.getElementById("hint").textContent =
-    m === "walk" ? "Cliquez sur la vue pour capturer la souris — ZQSD/WASD ou flèches pour marcher, Maj pour courir." :
-    m === "orbit" ? "Glisser : orbiter — molette : zoom — clic droit : déplacer." :
-    "Vue en plan. Cliquez une pièce de la maquette ou de la mini-carte pour vous y téléporter.";
+    m === "walk" ? (IS_TOUCH
+      ? "Joystick à gauche pour marcher — glissez à droite pour regarder."
+      : "Cliquez sur la vue pour capturer la souris — ZQSD/WASD ou flèches pour marcher, Maj pour courir.") :
+    m === "orbit" ? "Glisser : orbiter — molette / pincer : zoom — clic droit : déplacer." :
+    "Vue en plan. Touchez une pièce de la maquette ou de la mini-carte pour vous y téléporter.";
+  document.getElementById("joystick").style.display = (IS_TOUCH && m === "walk") ? "block" : "none";
 }
 
-// pointer lock pour la marche
+// pointer lock pour la marche (bureau)
 const vp = renderer.domElement;
 vp.addEventListener("click", (e) => {
-  if (mode === "walk" && document.pointerLockElement !== vp) vp.requestPointerLock();
+  if (mode === "walk" && !IS_TOUCH && document.pointerLockElement !== vp) vp.requestPointerLock();
   else if (mode === "plan") teleportFromScreen(e);
 });
 document.addEventListener("mousemove", (e) => {
   if (mode === "walk" && document.pointerLockElement === vp) {
-    player.yaw -= e.movementX * 0.0023;
+    player.yaw += e.movementX * 0.0023;
     player.pitch = Math.max(-1.45, Math.min(1.45, player.pitch - e.movementY * 0.0023));
+  }
+});
+
+// contrôles tactiles : joystick (marche) + glisser (regard)
+const joyBase = document.getElementById("joystick");
+const joyThumb = document.getElementById("joyThumb");
+let joyTouch = null, lookTouch = null, lookLast = null;
+function joyRect() { return joyBase.getBoundingClientRect(); }
+joyBase.addEventListener("touchstart", (e) => {
+  e.preventDefault();
+  joyTouch = e.changedTouches[0].identifier;
+  joyUpdate(e.changedTouches[0]);
+}, { passive: false });
+function joyUpdate(t) {
+  const r = joyRect();
+  const dx = t.clientX - (r.left + r.width / 2);
+  const dy = t.clientY - (r.top + r.height / 2);
+  const max = r.width / 2;
+  const cl = Math.min(1, Math.hypot(dx, dy) / max);
+  const a = Math.atan2(dy, dx);
+  touchMove.s = Math.cos(a) * cl;
+  touchMove.f = -Math.sin(a) * cl;
+  joyThumb.style.transform = `translate(${Math.cos(a) * cl * max * 0.6}px, ${Math.sin(a) * cl * max * 0.6}px)`;
+}
+addEventListener("touchmove", (e) => {
+  for (const t of e.changedTouches) {
+    if (t.identifier === joyTouch) { e.preventDefault(); joyUpdate(t); }
+    else if (t.identifier === lookTouch && mode === "walk") {
+      e.preventDefault();
+      player.yaw += (t.clientX - lookLast.x) * 0.006;
+      player.pitch = Math.max(-1.45, Math.min(1.45, player.pitch - (t.clientY - lookLast.y) * 0.006));
+      lookLast = { x: t.clientX, y: t.clientY };
+    }
+  }
+}, { passive: false });
+vp.addEventListener("touchstart", (e) => {
+  if (mode !== "walk") return;
+  for (const t of e.changedTouches) {
+    if (t.identifier !== joyTouch && lookTouch === null) {
+      lookTouch = t.identifier;
+      lookLast = { x: t.clientX, y: t.clientY };
+    }
+  }
+}, { passive: true });
+addEventListener("touchend", (e) => {
+  for (const t of e.changedTouches) {
+    if (t.identifier === joyTouch) {
+      joyTouch = null; touchMove.f = touchMove.s = 0;
+      joyThumb.style.transform = "translate(0,0)";
+    }
+    if (t.identifier === lookTouch) { lookTouch = null; lookLast = null; }
   }
 });
 addEventListener("keydown", (e) => {
@@ -154,22 +227,21 @@ function freeSpot(x, z) {
 function walkUpdate(dt) {
   const run = keys["ShiftLeft"] || keys["ShiftRight"] ? 2.2 : 1;
   const sp = 2.1 * run * dt;
-  let fx = 0, fz = 0;
-  const f = [(keys["KeyW"] || keys["KeyZ"] || keys["ArrowUp"]) ? 1 : 0, (keys["KeyS"] || keys["ArrowDown"]) ? 1 : 0,
-             (keys["KeyA"] || keys["KeyQ"] || keys["ArrowLeft"]) ? 1 : 0, (keys["KeyD"] || keys["ArrowRight"]) ? 1 : 0];
+  // ff avant/arrière, ss droite/gauche (clavier ou joystick analogique)
+  const ff = ((keys["KeyW"] || keys["KeyZ"] || keys["ArrowUp"]) ? 1 : 0) - ((keys["KeyS"] || keys["ArrowDown"]) ? 1 : 0) + touchMove.f;
+  const ss = ((keys["KeyD"] || keys["ArrowRight"]) ? 1 : 0) - ((keys["KeyA"] || keys["KeyQ"] || keys["ArrowLeft"]) ? 1 : 0) + touchMove.s;
   const sin = Math.sin(player.yaw), cos = Math.cos(player.yaw);
-  fx += (f[0] - f[1]) * -sin + (f[3] - f[2]) * cos;
-  fz += (f[0] - f[1]) * -cos + (f[3] - f[2]) * -sin;
+  // cap plan : avant = (-sin, -cos) ; droite du marcheur = (-cos, +sin)
+  let fx = ff * -sin + ss * -cos;
+  let fz = ff * -cos + ss * sin;
   const len = Math.hypot(fx, fz);
   if (len > 0.001) {
-    fx = fx / len * sp; fz = fz / len * sp;
+    const k = sp * Math.min(1, len) / len;
+    fx *= k; fz *= k;
     if (!collide(player.x + fx, player.z)) player.x += fx;
     if (!collide(player.x, player.z + fz)) player.z += fz;
   }
-  camera.position.set(player.x, EYE, player.z);
-  camera.rotation.order = "YXZ";
-  camera.rotation.y = player.yaw;
-  camera.rotation.x = player.pitch;
+  placeCamera();
 }
 
 // --- vue plan + téléportation -------------------------------------------------------
@@ -181,7 +253,8 @@ function teleportFromScreen(e) {
   const t = -ray.ray.origin.y / ray.ray.direction.y;
   if (t > 0) {
     const hit = ray.ray.origin.clone().addScaledVector(ray.ray.direction, t);
-    if (roomAt(hit.x, hit.z)) { const sp = freeSpot(hit.x, hit.z); player.x = sp.x; player.z = sp.z; setMode("walk"); }
+    const px = hit.x, pz = -hit.z; // monde → plan
+    if (roomAt(px, pz)) { const sp = freeSpot(px, pz); player.x = sp.x; player.z = sp.z; setMode("walk"); }
   }
 }
 
@@ -215,9 +288,7 @@ function tourUpdate(dt) {
     tour.hold += dt;
     if (tour.hold > 5) nextTourStop();
   }
-  camera.position.set(player.x, EYE, player.z);
-  camera.rotation.order = "YXZ";
-  camera.rotation.y = player.yaw;
+  placeCamera();
   camera.rotation.x = -0.03;
 }
 
@@ -236,7 +307,7 @@ const roomList = document.getElementById("roomList");
 for (const r of ROOMS) {
   const li = document.createElement("li");
   li.innerHTML = `<b>${r.name}</b><span>${r.area}</span>`;
-  li.addEventListener("click", () => goToRoom(r.id));
+  li.addEventListener("click", () => { goToRoom(r.id); document.getElementById("sidebar").classList.remove("open"); });
   li.dataset.id = r.id;
   roomList.appendChild(li);
 }
@@ -269,6 +340,7 @@ document.getElementById("dayNight").addEventListener("click", () => {
   document.getElementById("dayNight").textContent = night ? "☀ Jour" : "🌙 Nuit";
 });
 document.getElementById("tourBtn").addEventListener("click", toggleTour);
+document.getElementById("roomsBtn").addEventListener("click", () => document.getElementById("sidebar").classList.toggle("open"));
 document.getElementById("helpBtn").addEventListener("click", () => document.getElementById("help").classList.toggle("hidden"));
 document.getElementById("help").addEventListener("click", (e) => { if (e.target.id === "help") e.target.classList.add("hidden"); });
 
@@ -309,7 +381,7 @@ function drawMinimap() {
   // joueur
   mctx.save();
   mctx.translate(mx(player.x), my(player.z));
-  mctx.rotate(-player.yaw); // yaw=0 regarde -z (vers la rue = bas de carte)
+  mctx.rotate(player.yaw); // yaw=0 regarde la rue (bas de carte)
   mctx.fillStyle = "#ffd24d";
   mctx.beginPath();
   mctx.moveTo(0, 7); mctx.lineTo(-4.5, -5); mctx.lineTo(0, -2.5); mctx.lineTo(4.5, -5);
@@ -337,7 +409,8 @@ addEventListener("resize", () => {
 
 const clock = new THREE.Clock();
 function planUpdate() {
-  camera.position.set(APT.width / 2, 26, APT.depth / 2 + 0.01);
+  // zénithale : haut d'écran = cour (-z monde), comme sur le plan imprimé
+  camera.position.set(APT.width / 2, 26, -APT.depth / 2);
   camera.rotation.order = "YXZ";
   camera.rotation.set(-Math.PI / 2, 0, 0);
 }

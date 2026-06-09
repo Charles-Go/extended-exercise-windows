@@ -22,6 +22,9 @@ Un serveur est nécessaire car la page utilise des modules ES.
 
 - **Visite** à la première personne : clic pour capturer la souris,
   ZQSD / WASD / flèches, `Maj` pour courir, collisions avec murs et mobilier.
+- **Mobile / tablette** : joystick virtuel (marche), glisser pour regarder,
+  pincer pour zoomer en orbite, bouton « ☰ Pièces » pour la liste, résolution
+  et ombres allégées automatiquement sur écrans tactiles.
 - **Orbite** : vue maquette « dollhouse » (plafonds masqués), rotation/zoom.
 - **Plan** : vue zénithale orthogonale ; cliquer une pièce téléporte.
 - **Visite guidée** (`T`) : parcours automatique des 13 pièces avec panoramiques.
@@ -45,7 +48,10 @@ Un serveur est nécessaire car la page utilise des modules ES.
 
 La géométrie est une reconstitution indicative à partir du plan 2D :
 les cloisonnements secondaires sont approchés, les surfaces affichées sont
-celles du plan.
+celles du plan. La maquette est bâtie en coordonnées plan puis réfléchie en
+`z` (three.js est direct, y vers le haut) afin de restituer la chiralité
+exacte du plan — vue en plan et mini-carte sont orientées comme le document
+d'origine (rue en bas, ouest à gauche).
 
 ## Structure
 
